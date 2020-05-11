@@ -1,0 +1,68 @@
+<!doctype html>
+<html lang="en-us">
+<head>
+    <meta charset="utf-8">
+    <link href="https://fonts.googleapis.com/css?family=PT+Sans|PT+Sans+Caption:700" rel="stylesheet">
+    <meta http-equiv="Content-Type" content="text/html; charset=utf-8">
+    <title>geometrize wasm</title>
+</head>
+    <body id="body" style="background:#222; color:#eee; padding:30px;">
+        <input type="file" name="max-mutations" id="photo" />
+        <script async type="text/javascript" src="main.js"></script>
+    </body>
+
+    <script type="text/javascript">
+        var image_w = 0;
+        var image_h = 0;
+
+        var fileInput = document.getElementById('photo');
+
+        function geometrizeImage(file) {
+            if(!(file instanceof Blob)) return;
+
+            var reader = new FileReader();
+            reader.readAsDataURL(file);
+
+            reader.onloadend = event => {
+                var image = new Image;
+                image.src = reader.result;
+
+                image.onload = function() {
+                    image_w = image.width;
+                    image_h = image.height;
+                };
+            }
+
+            var reader2 = new FileReader();
+
+            console.log(file);
+
+            reader2.onloadend = event => {
+               const blobArray = new Uint8Array(event.target.result);
+               const data = window.Module._malloc(blobArray.length);
+
+               Module.HEAPU8.set(blobArray, data);
+               Module._GeometrizeImage(intArrayFromString(file.name), image_w, image_h, data);
+
+               // Retreiving our (modified) memory is also straight forward.
+               // First we get some javascript memory and then we copy the
+               // relevant chunk of the wasm memory into our javascript object.
+               // const returnArr = new Uint8Array(blobArray.length);
+               // If returnArr is std::vector<uint8_t>, then is probably similar to
+               // returnArr.assign(ptr, ptr + dataSize)
+               // returnArr.set(window.Module.HEAPU8.subarray(uint8_t_ptr, uint8_t_ptr + blobArray.length));
+               // Lastly, according to the docs, we should call ._free here.
+               // Do we need to call the gc somehow?
+               // window.Module._free(uint8_t_ptr);
+            }
+
+            reader2.readAsArrayBuffer(file);
+        }
+
+        fileInput.addEventListener('change', (event) => {
+            geometrizeImage(fileInput.files[0]);
+        });
+    </script>
+</html>
+
+
