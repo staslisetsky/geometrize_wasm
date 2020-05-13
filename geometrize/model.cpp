@@ -80,6 +80,7 @@ public:
             }
         }
 
+
         std::vector<std::future<geometrize::State>> futures{maxThreads};
         for(std::uint32_t i = 0; i < futures.size(); i++) {
             std::future<geometrize::State> handle{std::async(std::launch::async, [&](const std::uint32_t seed, const float lastScore) {
