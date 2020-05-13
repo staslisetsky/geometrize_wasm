@@ -1,9 +1,9 @@
 Module['onRuntimeInitialized'] = function(text) {
-    console.log('Wasm runtime initialized');
+    console.log('wasm runtime initialized');
 };
 
 function appInitialized() {
-    console.log('app initialized!');
+    // console.log('app initialized!');
 }
 
 // function geometrizeLoadImage(file) {
