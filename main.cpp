@@ -21,7 +21,7 @@ main(int ArgCount, char **Args)
     char *Path = "sample_images/grapefruit.png";
     geometrize::Bitmap Bitmap = ReadImage(Path);
 
-    int CandidateShapeCount = 50;
+    int CandidateShapeCount = 256;
     int MaxFitCount = 100;
     geometrize::ShapeTypes ShapeType = geometrize::ELLIPSE;
 

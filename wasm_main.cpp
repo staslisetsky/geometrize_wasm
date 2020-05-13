@@ -12,7 +12,8 @@
 // EM_ASM(console.log("Recei: " + $0 + " Index: " + $1), Event->Index, FirstUnusedEvent);
 
 extern "C" {
-   void EMSCRIPTEN_KEEPALIVE GeometrizeImage(int w, int h, int Size, unsigned char *Data);
+   void EMSCRIPTEN_KEEPALIVE GeometrizeLoadImage(unsigned char *Data, int Size, int ShapeCount, int MaxMutations, int Alpha);
+   void EMSCRIPTEN_KEEPALIVE GeometrizeStep();
    void * EMSCRIPTEN_KEEPALIVE GetResultSvg();
 }
 
@@ -91,6 +92,9 @@ LoadImage(unsigned char *Data, int Size)
     int w,h,n = 0;
     unsigned char *LoadedImage = stbi_load_from_memory(Data, Size, &w, &h, &n, 4);
 
+    ImageW = w;
+    ImageH = h;
+
     char Buffer[1024];
     sprintf(Buffer, "stb: image loaded %dx%d, unpacked size: %d bytes", w, h, w*h*4);
     WasmConsoleLog(Buffer);
@@ -103,84 +107,58 @@ LoadImage(unsigned char *Data, int Size)
 
 geometrize::ImageRunnerOptions Options{};
 geometrize::Bitmap *Bitmap;
+geometrize::ImageRunner *Runner;
 
 static bool Done = false;
+static int CurrentStep = 0;
 
 void
 ThreadProc()
 {
     WasmConsoleLog("started geometrize thread");
 
-    geometrize::ImageRunner Runner(*Bitmap);
+    if (CurrentStep < Options.shapeCount) {
+        std::vector<geometrize::ShapeResult> Shapes{Runner->step(Options)};
 
-    for (int i=0; i<Options.shapeCount; ++i) {
-        std::vector<geometrize::ShapeResult> Shapes{Runner.step(Options)};
-
-        for(int j=0; j<Shapes.size(); ++j) {
+        for (int j=0; j<Shapes.size(); ++j) {
             WasmConsoleLog("shape added");
         }
 
         std::copy(Shapes.begin(), Shapes.end(), std::back_inserter(Result));
+        ++CurrentStep;
+    } else {
+        WasmConsoleLog("already at max shape count");
     }
-
-    WasmConsoleLog("all done");
-    Done = true;
-
-    delete Bitmap;
 }
 
 void
-GeometrizeImage(int w, int h, int Size, unsigned char *Data)
+GeometrizeLoadImage(unsigned char *Data, int Size, int ShapeCount, int MaxMutations, int Alpha)
 {
-    ImageW = w;
-    ImageH = h;
-    char Buffer[1024];
-    sprintf(Buffer, "geometrize: received image %dx%d, size: %d bytes", w, h, Size);
-    WasmConsoleLog(Buffer);
-
-    Bitmap = new geometrize::Bitmap{LoadImage(Data, Size)};
-
-    int CandidateShapeCount = 50;
-    int MaxFitCount = 100;
-
-    // geometrize::ImageRunnerOptions Options;
-    Options.alpha = 128;
-    Options.maxShapeMutations = MaxFitCount;
-    Options.shapeCount = CandidateShapeCount;
+    Options.alpha = Alpha;
+    Options.maxShapeMutations = MaxMutations;
+    Options.shapeCount = ShapeCount;
     Options.shapeTypes = geometrize::ELLIPSE;
     Options.seed = 9001;
-    Options.maxThreads = 1;
 
+    Bitmap = new geometrize::Bitmap{LoadImage(Data, Size)};
+    Runner = new geometrize::ImageRunner(*Bitmap);
+}
+
+void
+GeometrizeStep()
+{
     std::thread WorkerThread{ThreadProc};
     WorkerThread.detach();
-
-    // geometrize::ImageRunner Runner(Bitmap);
-
-    // WasmConsoleLog("running...");
-
-    // for (int i=0; i<CandidateShapeCount; ++i) {
-    //     std::vector<geometrize::ShapeResult> Shapes{Runner.step(Options)};
-
-    //     for(int j=0; j<Shapes.size(); ++j) {
-    //         WasmConsoleLog("shape added");
-    //     }
-
-    //     std::copy(Shapes.begin(), Shapes.end(), std::back_inserter(Result));
-    // }
-
-    // WasmConsoleLog("done");
-
-
 }
 
 void *
 GetResultSvg()
 {
-    if (Done) {
-        Test = geometrize::exporter::exportSVG(Result, ImageW, ImageH);
-    } else {
-        Test = "not done yet";
-    }
+    Test = geometrize::exporter::exportSVG(Result, ImageW, ImageH);
+    // if (Done) {
+    // } else {
+    //     Test = "not done yet";
+    // }
 
     const char *C = Test.c_str();
     return (void *)C;
