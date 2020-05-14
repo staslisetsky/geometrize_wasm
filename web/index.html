@@ -1,86 +1,84 @@
 <!doctype html>
 <html lang="en-us">
 <head>
-    <meta charset="utf-8">
-    <link href="https://fonts.googleapis.com/css?family=PT+Sans|PT+Sans+Caption:700" rel="stylesheet">
-    <meta http-equiv="Content-Type" content="text/html; charset=utf-8">
-    <title>geometrize wasm</title>
+  <meta charset="utf-8">
+  <link href="https://fonts.googleapis.com/css?family=PT+Sans|PT+Sans+Caption:700" rel="stylesheet">
+  <meta http-equiv="Content-Type" content="text/html; charset=utf-8">
+  <title>geometrize wasm</title>
 </head>
-    <body id="body" style="background:#222; color:#eee; padding:30px;">
-        <input type="file" name="max-mutations" id="photo" />
-        <input type="button" value="step" id="step">
-        <input type="button" value="get svg" id="get-svg">
-        <script async type="text/javascript" src="main.js"></script>
-    </body>
+<body id="body" style="background:#222; color:#eee; padding:30px;">
+  <input type="file" name="max-mutations" id="photo" />
+  <input type="button" value="step" id="step">
+  <input type="button" value="get json" id="get-json">
+  <script async type="text/javascript" src="main.js"></script>
+</body>
 
-    <script type="text/javascript">
-        var image_w = 0;
-        var image_h = 0;
+<script type="text/javascript">
+  var image_w = 0;
+  var image_h = 0;
 
-        var fileInput = document.getElementById('photo');
-        var buttonSvg = document.getElementById('get-svg');
-        var buttonStep = document.getElementById('step');
+  var fileInput = document.getElementById('photo');
+  var buttonJson = document.getElementById('get-json');
+  var buttonStep = document.getElementById('step');
 
-        buttonSvg.addEventListener('click', (event) => {
-            var result = UTF8ToString(Module._GetResultSvg());
-            console.log(result);
-        });
+  function wasmLoadedCallback() {
+    // called when all the wasm stuff is ready
+    // all Module calls must be only used after this callback is called
+    console.log('wasm runtime initialized');
+  }
 
-        buttonStep.addEventListener('click', (event) => {
-            Module._GeometrizeStep();
-        });
+  function stepCompletedCallback() {
+    // called when worker thread completes the step and exits
+    console.log('step done');
+  }
 
-        function geometrizeImage(file) {
-            if(!(file instanceof Blob)) return;
+  buttonJson.addEventListener('click', (event) => {
+    var result = UTF8ToString(Module._GeometrizeGetFullResultJson());
+    // var result = UTF8ToString(Module._GeometrizeGetStepResultJson());
+    console.log(result);
+  });
 
-            var reader = new FileReader();
-            var reader2 = new FileReader();
+  buttonStep.addEventListener('click', (event) => {
+    Module._GeometrizeStep();
+  });
 
-            reader.readAsDataURL(file);
+  function geometrizeImage(file) {
+    if(!(file instanceof Blob)) return;
 
-            reader.onloadend = event => {
-                var image = new Image;
-                image.src = reader.result;
+    var reader = new FileReader();
+    var reader2 = new FileReader();
 
-                image.onload = function() {
-                    image_w = image.width;
-                    image_h = image.height;
+    reader.readAsDataURL(file);
 
-                    console.log(image_w);
-                    console.log(image_h);
+    reader.onloadend = event => {
+      var image = new Image;
+      image.src = reader.result;
 
-                    reader2.readAsArrayBuffer(file);
-                };
-            }
+      image.onload = function() {
+        image_w = image.width;
+        image_h = image.height;
+        reader2.readAsArrayBuffer(file);
+      };
+    }
 
-            reader2.onloadend = event => {
-               const blobArray = new Uint8Array(event.target.result);
-               const data = window.Module._malloc(blobArray.length);
+    reader2.onloadend = event => {
+      const blobArray = new Uint8Array(event.target.result);
+      const data = window.Module._malloc(blobArray.length);
 
-               Module.HEAPU8.set(blobArray, data);
+      Module.HEAPU8.set(blobArray, data);
 
-               var maxShapes = 256;
-               var maxMutations = 100;
-               var alpha = 128;
-               Module._GeometrizeLoadImage(data, blobArray.length, maxShapes, maxMutations, alpha);
+      var maxShapes = 256;
+      var maxMutations = 100;
+      var alpha = 128;
 
-               // Retreiving our (modified) memory is also straight forward.
-               // First we get some javascript memory and then we copy the
-               // relevant chunk of the wasm memory into our javascript object.
-               // const returnArr = new Uint8Array(blobArray.length);
-               // If returnArr is std::vector<uint8_t>, then is probably similar to
-               // returnArr.assign(ptr, ptr + dataSize)
-               // returnArr.set(window.Module.HEAPU8.subarray(uint8_t_ptr, uint8_t_ptr + blobArray.length));
-               // Lastly, according to the docs, we should call ._free here.
-               // Do we need to call the gc somehow?
-               // window.Module._free(uint8_t_ptr);
-            }
-        }
+      Module._GeometrizeLoadImage(data, blobArray.length, maxShapes, maxMutations, alpha);
+    }
+  }
 
-        fileInput.addEventListener('change', (event) => {
-            geometrizeImage(fileInput.files[0]);
-        });
-    </script>
+  fileInput.addEventListener('change', (event) => {
+    geometrizeImage(fileInput.files[0]);
+  });
+</script>
 </html>
 
 

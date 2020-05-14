@@ -4,7 +4,7 @@ pushd build_wasm
 
 @echo off
 echo Building wasm DEBUG:
-set Exported="['_GeometrizeLoadImage', '_GeometrizeStep', '_GetResultSvg', '_main']"
+set Exported="['_GeometrizeLoadImage', '_GeometrizeStep', '_GeometrizeGetFullResultJson', '_GeometrizeGetStepResultJson', '_GeometrizeReset', '_main']"
 
 rem call emcc -c -std=c++11 -O2 ^
 rem     -s USE_PTHREADS=1 ^
@@ -38,7 +38,7 @@ rem     %ProjectDir%/geometrize/shape/triangle.cpp
 
 call emcc ^
     %ProjectDir%\wasm_main.cpp -o main.js --pre-js %ProjectDir%\web\wasm_loader.js ^
-    -O0 -std=c++11 -Wno-null-dereference -Wno-writable-strings -Wno-format ^
+    -O2 -std=c++11 -Wno-null-dereference -Wno-writable-strings -Wno-format ^
     -s DISABLE_DEPRECATED_FIND_EVENT_TARGET_BEHAVIOR=1 -s ASSERTIONS=1 -s WASM=1 ^
     -s NO_EXIT_RUNTIME=1 ^
     -s EXPORTED_FUNCTIONS=%Exported% ^
@@ -51,7 +51,7 @@ popd
 
 copy build_wasm\main.js web /y
 copy build_wasm\main.wasm web /y
-copy build_wasm\main.js.mem web /y
-copy build_wasm\main.wasm.map web /y
-copy build_wasm\main.wast web /y
+rem copy build_wasm\main.js.mem web /y
+rem copy build_wasm\main.wasm.map web /y
+rem copy build_wasm\main.wast web /y
 copy build_wasm\main.worker.js web /y

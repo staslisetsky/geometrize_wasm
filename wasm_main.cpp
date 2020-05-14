@@ -1,3 +1,14 @@
+/*
+
+Webassembly wrapper for Geometrize library
+(https://github.com/Tw1ddle/geometrize-lib)
+
+Made by Stas Lisetsky in 2020
+stas.lisetsky@gmail.com
+https://twitter.com/stas_lisetsky
+
+*/
+
 #include <emscripten/emscripten.h>
 #include <emscripten/key_codes.h>
 #include <emscripten/html5.h>
@@ -14,7 +25,9 @@
 extern "C" {
    void EMSCRIPTEN_KEEPALIVE GeometrizeLoadImage(unsigned char *Data, int Size, int ShapeCount, int MaxMutations, int Alpha);
    void EMSCRIPTEN_KEEPALIVE GeometrizeStep();
-   void * EMSCRIPTEN_KEEPALIVE GetResultSvg();
+   void EMSCRIPTEN_KEEPALIVE GeometrizeReset();
+   void * EMSCRIPTEN_KEEPALIVE GeometrizeGetFullResultJson();
+   void * EMSCRIPTEN_KEEPALIVE GeometrizeGetStepResultJson();
 }
 
 #define STB_IMAGE_IMPLEMENTATION
@@ -36,6 +49,25 @@ extern "C" {
 #include "geometrize/shape/shapefactory.h"
 #include "geometrize/shape/shapetypes.h"
 
+struct state {
+    std::vector<geometrize::ShapeResult> Result;
+    std::vector<geometrize::ShapeResult> StepResult;
+
+    geometrize::ImageRunnerOptions Options {};
+    geometrize::Bitmap *Bitmap = nullptr;
+    geometrize::ImageRunner *Runner = nullptr;
+
+    int ImageW = 0;
+    int ImageH = 0;
+
+    volatile bool WorkerRunning = false;
+    int CurrentStep = 0;
+
+    std::string TextResult = "";
+};
+
+state State {};
+
 // EM_ASM(console.log("Key Down: " + $0 + " Index: " + $1), Event->Index, FirstUnusedEvent);
 
 void
@@ -47,44 +79,39 @@ WasmConsoleLog(const char *String)
 void
 WasmPrintError(EMSCRIPTEN_RESULT Error)
 {
-   switch(Error) {
-      case EMSCRIPTEN_RESULT_SUCCESS: {
-        WasmConsoleLog("The operation succeeded.");
-    } break;
-    case EMSCRIPTEN_RESULT_DEFERRED: {
-     WasmConsoleLog("The requested operation cannot be completed now for web security reasons, and has been deferred for completion in the next event handler.");
- } break;
- case EMSCRIPTEN_RESULT_NOT_SUPPORTED: {
-     WasmConsoleLog("The given operation is not supported by this browser or the target element. This value will be returned at the time the callback is registered if the operation is not supported.");
- } break;
- case EMSCRIPTEN_RESULT_FAILED_NOT_DEFERRED: {
-     WasmConsoleLog("The requested operation could not be completed now for web security reasons. It failed because the user requested the operation not be deferred.");
- } break;
- case EMSCRIPTEN_RESULT_INVALID_TARGET: {
-     WasmConsoleLog("The operation failed because the specified target element is invalid.");
- } break;
- case EMSCRIPTEN_RESULT_UNKNOWN_TARGET: {
-     WasmConsoleLog("The operation failed because the specified target element was not found.");
- } break;
- case EMSCRIPTEN_RESULT_INVALID_PARAM: {
-     WasmConsoleLog("The operation failed because an invalid parameter was passed to the function.");
- } break;
- case EMSCRIPTEN_RESULT_FAILED: {
-     WasmConsoleLog("Generic failure result message, returned if no specific result is available.");
- } break;
- case EMSCRIPTEN_RESULT_NO_DATA: {
-     WasmConsoleLog("The operation failed because no data is currently available.");
- } break;
- default: {
-     WasmConsoleLog("Unknown error");
- }
+    switch(Error) {
+        case EMSCRIPTEN_RESULT_SUCCESS: {
+            WasmConsoleLog("The operation succeeded.");
+        } break;
+        case EMSCRIPTEN_RESULT_DEFERRED: {
+           WasmConsoleLog("The requested operation cannot be completed now for web security reasons, and has been deferred for completion in the next event handler.");
+        } break;
+        case EMSCRIPTEN_RESULT_NOT_SUPPORTED: {
+           WasmConsoleLog("The given operation is not supported by this browser or the target element. This value will be returned at the time the callback is registered if the operation is not supported.");
+        } break;
+        case EMSCRIPTEN_RESULT_FAILED_NOT_DEFERRED: {
+           WasmConsoleLog("The requested operation could not be completed now for web security reasons. It failed because the user requested the operation not be deferred.");
+        } break;
+        case EMSCRIPTEN_RESULT_INVALID_TARGET: {
+           WasmConsoleLog("The operation failed because the specified target element is invalid.");
+        } break;
+        case EMSCRIPTEN_RESULT_UNKNOWN_TARGET: {
+           WasmConsoleLog("The operation failed because the specified target element was not found.");
+        } break;
+        case EMSCRIPTEN_RESULT_INVALID_PARAM: {
+           WasmConsoleLog("The operation failed because an invalid parameter was passed to the function.");
+        } break;
+        case EMSCRIPTEN_RESULT_FAILED: {
+           WasmConsoleLog("Generic failure result message, returned if no specific result is available.");
+        } break;
+        case EMSCRIPTEN_RESULT_NO_DATA: {
+           WasmConsoleLog("The operation failed because no data is currently available.");
+        } break;
+        default: {
+           WasmConsoleLog("Unknown error");
+        }
+    }
 }
-}
-
-static std::vector<geometrize::ShapeResult> Result;
-static int ImageW = 0;
-static int ImageH = 0;
-static std::string Test("");
 
 const geometrize::Bitmap
 LoadImage(unsigned char *Data, int Size)
@@ -92,8 +119,8 @@ LoadImage(unsigned char *Data, int Size)
     int w,h,n = 0;
     unsigned char *LoadedImage = stbi_load_from_memory(Data, Size, &w, &h, &n, 4);
 
-    ImageW = w;
-    ImageH = h;
+    State.ImageW = w;
+    State.ImageH = h;
 
     char Buffer[1024];
     sprintf(Buffer, "stb: image loaded %dx%d, unpacked size: %d bytes", w, h, w*h*4);
@@ -105,63 +132,101 @@ LoadImage(unsigned char *Data, int Size)
     return Bitmap;
 }
 
-geometrize::ImageRunnerOptions Options{};
-geometrize::Bitmap *Bitmap;
-geometrize::ImageRunner *Runner;
-
-static bool Done = false;
-static int CurrentStep = 0;
-
 void
 ThreadProc()
 {
     WasmConsoleLog("started geometrize thread");
 
-    if (CurrentStep < Options.shapeCount) {
-        std::vector<geometrize::ShapeResult> Shapes{Runner->step(Options)};
+    State.StepResult.clear();
 
-        for (int j=0; j<Shapes.size(); ++j) {
-            WasmConsoleLog("shape added");
-        }
-
-        std::copy(Shapes.begin(), Shapes.end(), std::back_inserter(Result));
-        ++CurrentStep;
+    if (State.CurrentStep < State.Options.shapeCount) {
+        State.StepResult = State.Runner->step(State.Options);
+        std::copy(State.StepResult.begin(), State.StepResult.end(), std::back_inserter(State.Result));
+        ++State.CurrentStep;
     } else {
         WasmConsoleLog("already at max shape count");
     }
+
+    State.WorkerRunning = false;
+    emscripten_run_script("postMessage({cmd: \"objectTransfer\", msg: \"step_done\"})");
+}
+
+void
+GeometrizeReset()
+{
+    State.Result.clear();
+
+    if (State.Bitmap) {
+        delete State.Bitmap;
+    }
+    if (State.Runner) {
+        delete State.Runner;
+    }
+
+    State.Bitmap = nullptr;
+    State.Runner = nullptr;
+    State.CurrentStep = 0;
 }
 
 void
 GeometrizeLoadImage(unsigned char *Data, int Size, int ShapeCount, int MaxMutations, int Alpha)
 {
-    Options.alpha = Alpha;
-    Options.maxShapeMutations = MaxMutations;
-    Options.shapeCount = ShapeCount;
-    Options.shapeTypes = geometrize::ELLIPSE;
-    Options.seed = 9001;
+    GeometrizeReset();
 
-    Bitmap = new geometrize::Bitmap{LoadImage(Data, Size)};
-    Runner = new geometrize::ImageRunner(*Bitmap);
+    State.Options.alpha = Alpha;
+    State.Options.maxShapeMutations = MaxMutations;
+    State.Options.shapeCount = ShapeCount;
+    State.Options.shapeTypes = geometrize::ELLIPSE;
+    State.Options.seed = 9001;
+
+    State.Bitmap = new geometrize::Bitmap { LoadImage(Data, Size) };
+    State.Runner = new geometrize::ImageRunner(*State.Bitmap);
 }
 
 void
 GeometrizeStep()
 {
-    std::thread WorkerThread{ThreadProc};
-    WorkerThread.detach();
+    if (!State.WorkerRunning) {
+        State.WorkerRunning = true;
+        std::thread WorkerThread {ThreadProc};
+        WorkerThread.detach();
+    } else {
+        WasmConsoleLog("worker already running");
+    }
 }
 
 void *
-GetResultSvg()
+GeometrizeGetFullResultJson()
 {
-    Test = geometrize::exporter::exportSVG(Result, ImageW, ImageH);
-    // if (Done) {
-    // } else {
-    //     Test = "not done yet";
-    // }
+    static char *Response = 0;
 
-    const char *C = Test.c_str();
-    return (void *)C;
+    if (!Response) {
+        free(Response);
+    }
+
+    std::string JSON = geometrize::exporter::exportShapeJson(State.Result);
+    Response = (char *)malloc(JSON.size() + 1);
+    Response[JSON.size()] = 0;
+    memcpy(Response, JSON.c_str(), JSON.size());
+
+    return (void *)Response;
+}
+
+void *
+GeometrizeGetStepResultJson()
+{
+    static char *Response = 0;
+
+    if (!Response) {
+        free(Response);
+    }
+
+    std::string JSON = geometrize::exporter::exportShapeJson(State.StepResult);
+    Response = (char *)malloc(JSON.size() + 1);
+    Response[JSON.size()] = 0;
+    memcpy(Response, JSON.c_str(), JSON.size());
+
+    return (void *)Response;
 }
 
 int
