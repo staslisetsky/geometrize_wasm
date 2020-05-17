@@ -4,7 +4,7 @@ pushd build_wasm
 
 @echo off
 echo Building wasm DEBUG:
-set Exported="['_GeometrizeLoadImage', '_GeometrizeStep', '_GeometrizeGetFullResultJson', '_GeometrizeGetStepResultJson', '_GeometrizeReset', '_main']"
+set Exported="['_GeometrizeLoadImage', '_GeometrizeStep', '_GeometrizeGetFullResultJson', '_GeometrizeGetStepResultJson', '_GeometrizeGetFullResultSvg', '_GeometrizeGetStepResultSvg', '_GeometrizeReset', '_main']"
 
 rem call emcc -c -std=c++11 -O2 ^
 rem     -s USE_PTHREADS=1 ^

@@ -23,11 +23,13 @@ https://twitter.com/stas_lisetsky
 // EM_ASM(console.log("Recei: " + $0 + " Index: " + $1), Event->Index, FirstUnusedEvent);
 
 extern "C" {
-   void EMSCRIPTEN_KEEPALIVE GeometrizeLoadImage(unsigned char *Data, int Size, int ShapeCount, int MaxMutations, int Alpha);
+   void EMSCRIPTEN_KEEPALIVE GeometrizeLoadImage(unsigned char *Data, int Size, unsigned int ShapeType, int ShapeCount, int MaxMutations, int Alpha);
    void EMSCRIPTEN_KEEPALIVE GeometrizeStep();
    void EMSCRIPTEN_KEEPALIVE GeometrizeReset();
    void * EMSCRIPTEN_KEEPALIVE GeometrizeGetFullResultJson();
    void * EMSCRIPTEN_KEEPALIVE GeometrizeGetStepResultJson();
+   void * EMSCRIPTEN_KEEPALIVE GeometrizeGetFullResultSvg(std::uint32_t W, std::uint32_t H);
+   void * EMSCRIPTEN_KEEPALIVE GeometrizeGetStepResultSvg(std::uint32_t W, std::uint32_t H);
 }
 
 #define STB_IMAGE_IMPLEMENTATION
@@ -169,14 +171,14 @@ GeometrizeReset()
 }
 
 void
-GeometrizeLoadImage(unsigned char *Data, int Size, int ShapeCount, int MaxMutations, int Alpha)
+GeometrizeLoadImage(unsigned char *Data, int Size, unsigned int ShapeType, int ShapeCount, int MaxMutations, int Alpha)
 {
     GeometrizeReset();
 
     State.Options.alpha = Alpha;
     State.Options.maxShapeMutations = MaxMutations;
     State.Options.shapeCount = ShapeCount;
-    State.Options.shapeTypes = geometrize::ELLIPSE;
+    State.Options.shapeTypes = (geometrize::ShapeTypes)ShapeType;
     State.Options.seed = 9001;
 
     State.Bitmap = new geometrize::Bitmap { LoadImage(Data, Size) };
@@ -222,6 +224,40 @@ GeometrizeGetStepResultJson()
     }
 
     std::string JSON = geometrize::exporter::exportShapeJson(State.StepResult);
+    Response = (char *)malloc(JSON.size() + 1);
+    Response[JSON.size()] = 0;
+    memcpy(Response, JSON.c_str(), JSON.size());
+
+    return (void *)Response;
+}
+
+void *
+GeometrizeGetFullResultSvg(std::uint32_t W, std::uint32_t H)
+{
+    static char *Response = 0;
+
+    if (!Response) {
+        free(Response);
+    }
+
+    std::string JSON = geometrize::exporter::exportSVG(State.Result, W, H);
+    Response = (char *)malloc(JSON.size() + 1);
+    Response[JSON.size()] = 0;
+    memcpy(Response, JSON.c_str(), JSON.size());
+
+    return (void *)Response;
+}
+
+void *
+GeometrizeGetStepResultSvg(std::uint32_t W, std::uint32_t H)
+{
+    static char *Response = 0;
+
+    if (!Response) {
+        free(Response);
+    }
+
+    std::string JSON = geometrize::exporter::exportSVG(State.StepResult, W, H);
     Response = (char *)malloc(JSON.size() + 1);
     Response[JSON.size()] = 0;
     memcpy(Response, JSON.c_str(), JSON.size());
